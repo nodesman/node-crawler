@@ -1,6 +1,10 @@
 node-crawler ChangeLog
 -------------------------
 
+2.0.4
+- Add tests for `maxSizeBytes` and `rejectOnMissingContentLength` options.
+- Add `maxSizeBytes` option to prevent large file downloads via HEAD checks and stream monitoring
+
 2.0.3
 - Add `maxSizeBytes` option to prevent large file downloads via HEAD checks and stream monitoring
 

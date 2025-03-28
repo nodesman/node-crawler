@@ -232,7 +232,7 @@ crawler.send({
 
 ### Preventing Large File Downloads
 
-To prevent downloading excessively large files, you can use the `maxSizeBytes` and `rejectOnMissingContentLength` options.  The crawler will first attempt a `HEAD` request to check the `Content-Length` header. If the size exceeds `maxSizeBytes` (or if the header is missing and `rejectOnMissingContentLength` is true), the download will be aborted.  For cases where the `Content-Length` is unavailable or unreliable, the crawler also monitors the download stream and aborts if the downloaded data exceeds `maxSizeBytes`.
+To prevent downloading excessively large files, you can use the `maxSizeBytes` and `rejectOnMissingContentLength` options. The crawler will first attempt a `HEAD` request to check the `Content-Length` header. If the size exceeds `maxSizeBytes` (or if the header is missing and `rejectOnMissingContentLength` is true), the download will be aborted. For cases where the `Content-Length` is unavailable or unreliable, the crawler also monitors the download stream and aborts if the downloaded data exceeds `maxSizeBytes`.
 
 ```js
 import Crawler from "crawler";
@@ -719,6 +719,4 @@ Crawler uses `nock` to mock http request, thus testing no longer relying on http
 
 ```bash
 $ pnpm test
-```
-
 ```

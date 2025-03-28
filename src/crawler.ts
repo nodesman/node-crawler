@@ -189,7 +189,6 @@ class Crawler extends EventEmitter {
         }
         // --- END NEW SIZE CHECK LOGIC ---
 
-
         // Determine Got Options (already done by alignOptions)
         const gotOptions = alignOptions(options);
 
@@ -281,7 +280,6 @@ class Crawler extends EventEmitter {
                      }
                  });
 
-
                 stream.on('end', () => {
                     if (requestAborted) return; // Don't proceed if aborted
 
@@ -313,7 +311,6 @@ class Crawler extends EventEmitter {
                 });
             });
         };
-
 
         // Choose request function based on whether maxSizeBytes is set
         const requestFn = (typeof maxSizeBytes === 'number' && maxSizeBytes > 0) ? streamRequest : originalRequest;
