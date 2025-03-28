@@ -28,6 +28,8 @@ export const crawlerOnlyOptions = [
     "referer",
     "rejectUnauthorized",
     "userParams",
+    "maxSizeBytes",
+    "rejectOnMissingContentLength"
 ].concat(globalOnlyOptions);
 export const deprecatedOptions = [
     "uri",

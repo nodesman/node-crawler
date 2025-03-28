@@ -230,7 +230,37 @@ crawler.send({
 });
 ```
 
-### 
+### Preventing Large File Downloads
+
+To prevent downloading excessively large files, you can use the `maxSizeBytes` and `rejectOnMissingContentLength` options.  The crawler will first attempt a `HEAD` request to check the `Content-Length` header. If the size exceeds `maxSizeBytes` (or if the header is missing and `rejectOnMissingContentLength` is true), the download will be aborted.  For cases where the `Content-Length` is unavailable or unreliable, the crawler also monitors the download stream and aborts if the downloaded data exceeds `maxSizeBytes`.
+
+```js
+import Crawler from "crawler";
+
+const c = new Crawler({
+    maxConnections: 10,
+    callback: (error, res, done) => {
+        if (error) {
+            console.error(error);
+        } else {
+            console.log(`Successfully crawled: ${res.options.url}`);
+        }
+        done();
+    },
+});
+
+c.add({
+    url: "http://example.com/largefile.zip",
+    maxSizeBytes: 10 * 1024 * 1024, // 10 MB
+    rejectOnMissingContentLength: true,
+});
+
+c.add({
+    url: "http://example.com/unknownsize.html",
+    maxSizeBytes: 5 * 1024 * 1024, // 5 MB
+    rejectOnMissingContentLength: false, // Proceed cautiously if Content-Length is missing
+});
+```
 
 # Table
 
@@ -270,6 +300,8 @@ crawler.send({
       - [`http2`](#http2)
       - [`referer`](#referer)
       - [`userParams`](#userparams)
+	  - [`maxSizeBytes`](#maxsizebytes)
+	  - [`rejectOnMissingContentLength`](#rejectonmissingcontentlength)
       - [`preRequest`](#prerequest-1)
       - [`Callback`](#callback)
   - [Work with Cheerio](#work-with-cheerio)
@@ -279,7 +311,6 @@ crawler.send({
     - [Origin Request Options](#origin-request-options)
   - [Behavior Changes](#behavior-changes)
 - [How to test](#how-to-test)
-
 
 # Content
 
@@ -597,6 +628,18 @@ crawler.on("schedule", options => {
 -   **Default** : undefined
 -   The user parameters. You can access them in the callback via `res.options`.
 
+#### `maxSizeBytes`
+
+-   **Type:** `number`
+-   **Default:** `undefined`
+-   The maximum size of the response body in bytes. If set, the crawler attempts to prevent downloading files larger than this limit, using a HEAD request and monitoring the download stream.
+
+#### `rejectOnMissingContentLength`
+
+-   **Type:** `boolean`
+-   **Default:** `false`
+-   If `true` and `maxSizeBytes` is set, the crawler will reject the request during the initial HEAD check if the `Content-Length` header is missing. If `false`, it will proceed to download and monitor the stream progress.
+
 #### `preRequest`
 
 -   **Type:** `(options, done) => unknown`
@@ -676,4 +719,6 @@ Crawler uses `nock` to mock http request, thus testing no longer relying on http
 
 ```bash
 $ pnpm test
+```
+
 ```

@@ -137,7 +137,7 @@ export type RequestOptions = {
 
     /**
      * @default false
-     * 
+     *
      * If true, the crawler will parse the response body as JSON.
      * This will set 'jQuery' to false.
      */
@@ -160,6 +160,21 @@ export type RequestOptions = {
     preRequest?: (options: RequestOptions, done?: (error?: Error | null) => void) => void;
     release?: () => void;
     callback?: (error: unknown, response: CrawlerResponse, done?: unknown) => void;
+    /**
+     * @default undefined
+     * @description The maximum size of a response body in bytes.
+     * If set, the crawler will attempt to prevent downloading files larger than this limit.
+     * It uses a HEAD request first (if possible) and monitors download progress.
+     */
+    maxSizeBytes?: number;
+
+    /**
+     * @default false
+     * @description If true and maxSizeBytes is set, the crawler will reject the request
+     * during the initial HEAD check if the Content-Length header is missing.
+     * If false, it will proceed to download and monitor stream progress.
+     */
+    rejectOnMissingContentLength?: boolean;
 };
 
 export type RequestConfig = string | RequestOptions | RequestOptions[];

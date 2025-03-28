@@ -1,6 +1,9 @@
 node-crawler ChangeLog
 -------------------------
 
+2.0.3
+- Add `maxSizeBytes` option to prevent large file downloads via HEAD checks and stream monitoring
+
 2.0.2
 - Add **Global Only Options : `silence`** to mute all crawler messages, including warnings and errors.
 - Change default error message when request failed in **Crawler.add**
@@ -15,7 +18,7 @@ node-crawler ChangeLog
 - Others
 
 2.0.0
-- Crawler V2 has been released, which is a complete rewrite of the original crawler. 
+- Crawler V2 has been released, which is a complete rewrite of the original crawler.
 - see [README.md](https://github.com/bda-research/node-crawler/blob/master/README.md) for details.
 
 1.5.0
@@ -143,11 +146,10 @@ node-crawler ChangeLog
 
 0.5.0
  * parse charset from `content-type` in http headers or meta tag in html, then convert
- * big5 charset is avaliable as the `iconv-lite` has already supported it 
+ * big5 charset is avaliable as the `iconv-lite` has already supported it
  * default enable gzip in request header
  * remove unzip code in crawler since `request` will do this
  * body will return as a Buffer if encoding is null which is an option in `request`
  * remove cache and skip duplicate `request` for `GET`, `POST`(only for type `urlencode`), `HEAD`
  * add log feature, you can use `winston` to set `logger:winston`, or crawler will output to console
  * rotate user-agent in case some sites ban your requests
-
