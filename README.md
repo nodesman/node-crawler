@@ -232,7 +232,12 @@ crawler.send({
 
 ### Preventing Large File Downloads
 
-To prevent downloading excessively large files, you can use the `maxSizeBytes` and `rejectOnMissingContentLength` options. The crawler will first attempt a `HEAD` request to check the `Content-Length` header. If the size exceeds `maxSizeBytes` (or if the header is missing and `rejectOnMissingContentLength` is true), the download will be aborted. For cases where the `Content-Length` is unavailable or unreliable, the crawler also monitors the download stream and aborts if the downloaded data exceeds `maxSizeBytes`.
+To prevent downloading excessively large files, you can use the `maxSizeBytes` and `rejectOnMissingContentLength` options. When `maxSizeBytes` is set, the crawler performs two checks:
+
+1.  **Header Check:** It attempts a `HEAD` request first. If the `Content-Length` header indicates a size exceeding `maxSizeBytes`, the download is aborted immediately. If `Content-Length` is missing and `rejectOnMissingContentLength` is set to `true`, the download is also aborted.
+2.  **Stream Monitoring:** If the header check passes (or is skipped due to missing `Content-Length` and `rejectOnMissingContentLength: false`), the crawler proceeds with the `GET` request but monitors the download stream. If the amount of downloaded data exceeds `maxSizeBytes` at any point, the download is aborted.
+
+This provides a robust way to avoid consuming excessive memory or bandwidth, even if server headers are unreliable.
 
 ```js
 import Crawler from "crawler";
@@ -241,24 +246,31 @@ const c = new Crawler({
     maxConnections: 10,
     callback: (error, res, done) => {
         if (error) {
-            console.error(error);
+            // Check for specific size-related error codes if needed
+            if (['ERR_FILE_TOO_LARGE_HEAD', 'ERR_FILE_TOO_LARGE_RESPONSE_HEADER', 'ERR_FILE_TOO_LARGE_STREAM', 'ERR_MISSING_CONTENT_LENGTH_HEAD'].includes(error.code)) {
+                 console.warn(`Skipped large file or missing header: ${res?.options?.url || error.options?.url} - ${error.message}`);
+            } else {
+                console.error(`Error crawling ${res?.options?.url || error.options?.url}: ${error.message}`);
+            }
         } else {
-            console.log(`Successfully crawled: ${res.options.url}`);
+            console.log(`Successfully crawled: ${res.options.url} (${res.body?.length || 0} bytes)`);
         }
         done();
     },
 });
 
+// Example 1: Limit to 10MB, reject if Content-Length is missing from HEAD
 c.add({
     url: "http://example.com/largefile.zip",
     maxSizeBytes: 10 * 1024 * 1024, // 10 MB
     rejectOnMissingContentLength: true,
 });
 
+// Example 2: Limit to 5MB, proceed even if Content-Length is missing (rely on stream monitoring)
 c.add({
-    url: "http://example.com/unknownsize.html",
+    url: "http://example.com/unknownsize.dynamic.content",
     maxSizeBytes: 5 * 1024 * 1024, // 5 MB
-    rejectOnMissingContentLength: false, // Proceed cautiously if Content-Length is missing
+    rejectOnMissingContentLength: false, // Default is false
 });
 ```
 

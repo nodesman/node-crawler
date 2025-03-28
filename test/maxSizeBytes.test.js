@@ -16,18 +16,18 @@ const smallBuffer = createBuffer(SMALL_FILE_SIZE);
 const largeBuffer = createBuffer(LARGE_FILE_SIZE);
 
 test.beforeEach(t => {
-    nock.cleanAll(); // Ensure mocks are clean before each test
+    nock.cleanAll();
     t.context.crawler = new Crawler({
-        // silence: true, // Uncomment for less noisy test output
-        jQuery: false, // Disable jQuery for these tests
+        // silence: true,
+        jQuery: false,
         retryInterval: 0,
-        retries: 0, // Disable retries for easier error checking
+        retries: 0,
     });
 });
 
 test.afterEach(t => {
     nock.cleanAll();
-    t.context.crawler = null; // Cleanup
+    t.context.crawler = null;
 });
 
 // --- Test Cases ---
@@ -39,7 +39,6 @@ testCb(test, "[maxSizeBytes] Should allow download if no limit is set", async t 
 
     t.context.crawler.add({
         url: `${BASE_URL}/large-file`,
-        // No maxSizeBytes option here
         callback: (error, res, done) => {
             t.is(error, null, "Should not have an error");
             t.is(res.statusCode, 200);
@@ -54,7 +53,6 @@ testCb(test, "[maxSizeBytes] HEAD check: Should reject if Content-Length exceeds
     nock(BASE_URL)
         .head("/large-file")
         .reply(200, '', { 'Content-Length': LARGE_FILE_SIZE });
-    // GET mock is not needed as HEAD should fail
 
     t.context.crawler.add({
         url: `${BASE_URL}/large-file`,
@@ -63,7 +61,6 @@ testCb(test, "[maxSizeBytes] HEAD check: Should reject if Content-Length exceeds
             t.truthy(error, "Should have an error");
             t.is(error.code, 'ERR_FILE_TOO_LARGE_HEAD', "Error code should indicate HEAD check failure");
             t.regex(error.message, /exceeds limit/);
-            // res might be partially populated or undefined depending on internal handling
             done();
             t.end();
         },
@@ -95,7 +92,6 @@ testCb(test, "[maxSizeBytes] HEAD check: Should reject if Content-Length missing
     nock(BASE_URL)
         .head("/missing-cl")
         .reply(200, '', { /* No Content-Length */ });
-    // GET mock is not needed
 
     t.context.crawler.add({
         url: `${BASE_URL}/missing-cl`,
@@ -116,12 +112,12 @@ testCb(test, "[maxSizeBytes] HEAD check: Should proceed if Content-Length missin
         .reply(200, '', { /* No Content-Length */ });
     nock(BASE_URL)
         .get("/missing-cl-small")
-        .reply(200, smallBuffer, { /* No Content-Length */ }); // Simulate GET response
+        .reply(200, smallBuffer, { /* No Content-Length */ });
 
     t.context.crawler.add({
         url: `${BASE_URL}/missing-cl-small`,
         maxSizeBytes: LIMIT,
-        rejectOnMissingContentLength: false, // Default or explicitly false
+        rejectOnMissingContentLength: false,
         callback: (error, res, done) => {
             t.is(error, null, "Should not have an error");
             t.is(res.statusCode, 200);
@@ -135,7 +131,7 @@ testCb(test, "[maxSizeBytes] HEAD check: Should proceed if Content-Length missin
 testCb(test, "[maxSizeBytes] HEAD check: Should proceed if HEAD fails (405 Method Not Allowed) and GET is small", async t => {
     nock(BASE_URL)
         .head("/head-not-allowed")
-        .reply(405); // Method Not Allowed
+        .reply(405);
     nock(BASE_URL)
         .get("/head-not-allowed")
         .reply(200, smallBuffer, { 'Content-Length': SMALL_FILE_SIZE });
@@ -158,10 +154,10 @@ testCb(test, "[maxSizeBytes] HEAD check: Should proceed if HEAD fails (405 Metho
 testCb(test, "[maxSizeBytes] Stream check: Should reject if GET Content-Length header exceeds limit (HEAD was ok)", async t => {
     nock(BASE_URL)
         .head("/cl-mismatch-large")
-        .reply(200, '', { 'Content-Length': SMALL_FILE_SIZE }); // HEAD looks okay
+        .reply(200, '', { 'Content-Length': SMALL_FILE_SIZE });
     nock(BASE_URL)
         .get("/cl-mismatch-large")
-        .reply(200, largeBuffer, { 'Content-Length': LARGE_FILE_SIZE }); // Actual GET has large CL
+        .reply(200, largeBuffer, { 'Content-Length': LARGE_FILE_SIZE });
 
     t.context.crawler.add({
         url: `${BASE_URL}/cl-mismatch-large`,
@@ -182,17 +178,16 @@ testCb(test, "[maxSizeBytes] Stream check: Should reject during download if data
         .reply(200, '', { /* No Content-Length */ });
     nock(BASE_URL)
         .get("/stream-large-no-cl")
-        .reply(200, largeBuffer, { /* No Content-Length, or incorrect small one */ });
+        .reply(200, largeBuffer, { /* No Content-Length */ });
 
     t.context.crawler.add({
         url: `${BASE_URL}/stream-large-no-cl`,
         maxSizeBytes: LIMIT,
-        rejectOnMissingContentLength: false, // Allow proceeding without CL
+        rejectOnMissingContentLength: false,
         callback: (error, res, done) => {
             t.truthy(error, "Should have an error");
             t.is(error.code, 'ERR_FILE_TOO_LARGE_STREAM', "Error code should indicate stream monitoring failure");
             t.regex(error.message, /exceeds limit/);
-            // Check that nock finished its request (even though aborted)
             t.true(nock.isDone(), "Nock should have processed the GET request start");
             done();
             t.end();
@@ -211,7 +206,7 @@ testCb(test, "[maxSizeBytes] Stream check: Should allow download if stream size 
     t.context.crawler.add({
         url: `${BASE_URL}/stream-small-no-cl`,
         maxSizeBytes: LIMIT,
-        rejectOnMissingContentLength: false, // Allow proceeding without CL
+        rejectOnMissingContentLength: false,
         callback: (error, res, done) => {
             t.is(error, null, "Should not have an error");
             t.is(res.statusCode, 200);
@@ -235,9 +230,8 @@ testCb(test, "[maxSizeBytes] Should work correctly with user preRequest (HEAD re
         maxSizeBytes: LIMIT,
         preRequest: (options, done) => {
             preRequestCalled = true;
-            // User preRequest does its checks/modifications
             options.headers['X-User-Prefetch'] = 'true';
-            done(); // Allow crawler's internal HEAD check to proceed
+            done();
         },
         callback: (error, res, done) => {
             t.true(preRequestCalled, "User preRequest should have been called");
@@ -264,9 +258,8 @@ testCb(test, "[maxSizeBytes] Should work correctly with user preRequest (Stream 
         rejectOnMissingContentLength: false,
         preRequest: (options, done) => {
             preRequestCalled = true;
-            // User preRequest does its checks/modifications
             options.headers['X-User-Prefetch'] = 'true';
-            done(); // Allow crawler's internal checks to proceed
+            done();
         },
         callback: (error, res, done) => {
             t.true(preRequestCalled, "User preRequest should have been called");
@@ -281,25 +274,22 @@ testCb(test, "[maxSizeBytes] Should work correctly with user preRequest (Stream 
 
 testCb(test, "[maxSizeBytes] Should abort if user preRequest calls done(error)", async t => {
     let preRequestCalled = false;
-     // Nock mocks might not even be hit if preRequest aborts early
     nock(BASE_URL).head("/prereq-abort").reply(200);
     nock(BASE_URL).get("/prereq-abort").reply(200);
 
     t.context.crawler.add({
         url: `${BASE_URL}/prereq-abort`,
-        maxSizeBytes: LIMIT, // Size limit shouldn't be relevant here
+        maxSizeBytes: LIMIT,
         preRequest: (options, done) => {
             preRequestCalled = true;
             const userError = new Error("User preRequest decided to abort");
             userError.code = 'USER_ABORT';
-            done(userError); // Abort before crawler's checks
+            done(userError);
         },
         callback: (error, res, done) => {
             t.true(preRequestCalled, "User preRequest should have been called");
             t.truthy(error, "Should have the error from preRequest");
             t.is(error.code, 'USER_ABORT');
-            // Ensure nock mocks were *not* hit beyond what preRequest might do
-            // This is harder to assert definitively with nock, but absence of response is indicative.
             done();
             t.end();
         },

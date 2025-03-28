@@ -136,7 +136,6 @@ class Crawler extends EventEmitter {
             this._proxyIndex++;
         }
 
-        // --- NEW SIZE CHECK LOGIC ---
         const maxSizeBytes = options.maxSizeBytes;
         let preliminaryCheckPassed = true;
         let checkError: CustomError | null = null;
@@ -144,16 +143,16 @@ class Crawler extends EventEmitter {
         if (typeof maxSizeBytes === 'number' && maxSizeBytes > 0) {
             log.debug(`[Size Check] Max size set to ${maxSizeBytes} bytes for ${options.url}`);
 
-            // 1. Optional but Recommended: HEAD Request (Good Faith Check)
+            // Perform HEAD request first if possible to check Content-Length
             try {
                 log.debug(`[Size Check] Performing HEAD request for ${options.url}`);
-                const headOptions = alignOptions({ // Create specific options for HEAD
+                const headOptions = alignOptions({
                     ...options,
                     method: 'HEAD',
-                    timeout: options.timeout ?? 5000, // Use specific, maybe shorter timeout for HEAD
-                    retries: 0 // Don't retry the HEAD check itself
+                    timeout: options.timeout ?? 5000, // Use specific timeout for HEAD
+                    retries: 0 // Disable retries for the HEAD check
                 });
-                // We need 'got' imported in this file
+
                 const headResponse = await got(headOptions);
                 const contentLength = headResponse.headers['content-length'];
                 log.debug(`[Size Check] HEAD Content-Length for ${options.url}: ${contentLength}`);
@@ -176,14 +175,12 @@ class Crawler extends EventEmitter {
                 }
 
             } catch (headError: any) {
-                // Decide how to handle HEAD errors (e.g., 404, 405 Method Not Allowed, timeout)
-                // Option 1: Log and proceed to GET/STREAM (less strict)
+                // Log HEAD errors but proceed to attempt the GET/STREAM by default
                 log.warn(`[Size Check] HEAD request failed for ${options.url}: ${headError.message}. Proceeding to GET/STREAM.`);
-                // Option 2: Abort (stricter)
+                // Optionally, could abort here by setting preliminaryCheckPassed = false
                 // preliminaryCheckPassed = false;
                 // checkError = new Error(`HEAD request failed: ${headError.message}`);
                 // checkError.code = 'ERR_HEAD_REQUEST_FAILED';
-                // log.warn(`[Size Check] Aborting due to HEAD failure: ${options.url} - ${checkError.message}`);
             }
         }
 
@@ -191,133 +188,109 @@ class Crawler extends EventEmitter {
         if (!preliminaryCheckPassed) {
             return this._handler(checkError, options);
         }
-        // --- END NEW SIZE CHECK LOGIC ---
 
-        // Determine Got Options (already done by alignOptions)
         const gotOptions = alignOptions(options);
 
-        // Original request function (fallback if no size limit)
-        const originalRequest = async () => {
+        // Function to perform the request, potentially monitoring stream size
+        const requestFn = async (): Promise<CrawlerResponse> => {
             if (options.skipEventRequest !== true) {
                 this.emit("request", options);
             }
-            let response: CrawlerResponse;
-            try {
-                response = await got(gotOptions); // Original behavior
-            } catch (error) {
-                log.debug(error);
-                return this._handler(error, options);
-            }
-            return this._handler(null, options, response);
-        };
 
-        // Request function with stream monitoring (if size limit is set)
-        const streamRequest = (): Promise<CrawlerResponse> => {
-            return new Promise((resolve, reject) => { // Wrap stream logic in a Promise
-                 if (options.skipEventRequest !== true) {
-                    this.emit("request", options);
-                }
+            // Use streaming only if a size limit is active
+            if (typeof maxSizeBytes === 'number' && maxSizeBytes > 0) {
+                return new Promise((resolve) => { // Wrap stream logic in a Promise
+                    const dataChunks: Buffer[] = [];
+                    let receivedBytes = 0;
+                    let responseHeaders: Record<string, unknown> | null = null;
+                    let statusCode: number | null = null;
+                    let requestAborted = false;
 
-                const dataChunks: Buffer[] = [];
-                let receivedBytes = 0;
-                let responseHeaders: Record<string, unknown> | null = null;
-                let statusCode: number | null = null;
-                let requestAborted = false;
+                    log.debug(`[Size Check] Starting GET request with stream monitoring for ${options.url}`);
+                    const stream = got.stream(gotOptions);
 
-                log.debug(`[Size Check] Starting GET request with stream monitoring for ${options.url}`);
-                const stream = got.stream(gotOptions);
-
-                const abortRequest = (error: Error) => {
-                    if (!requestAborted) {
-                        requestAborted = true;
-                        log.warn(`[Size Check] Aborting stream for ${options.url}: ${error.message}`);
-                        stream.destroy(error); // Destroy the stream
-                        // Directly call _handler with the error
-                        // Need to decide if _handler should resolve or reject the promise.
-                        // Let's make _handler resolve, but pass the error internally.
-                        resolve(this._handler(error, options));
-                    }
-                };
-
-                stream.on('response', (response: any) => { // 'response' from got.stream
-                    responseHeaders = response.headers;
-                    statusCode = response.statusCode;
-                    log.debug(`[Size Check] Stream response received for ${options.url} - Status: ${statusCode}`);
-
-                    // Check Content-Length again on the actual GET response
-                    const contentLength = responseHeaders?.['content-length'];
-                    if (contentLength) {
-                         const fileSize = parseInt(contentLength as string, 10);
-                         if (!isNaN(fileSize) && fileSize > maxSizeBytes!) {
-                             const error = new Error(`File size ${fileSize} (from GET Content-Length) exceeds limit of ${maxSizeBytes} bytes`);
-                             (error as CustomError).code = 'ERR_FILE_TOO_LARGE_RESPONSE_HEADER';
-                             abortRequest(error);
-                             return; // Stop further processing for this event
-                         }
-                    }
-                    // If Content-Length was missing before but rejectOnMissingContentLength was false,
-                    // and it's *still* missing, we just continue monitoring the stream size.
-                });
-
-                stream.on('data', (chunk: Buffer) => {
-                    if (requestAborted) return; // Don't process data if already aborted
-
-                    receivedBytes += chunk.length;
-                    dataChunks.push(chunk);
-
-                    if (receivedBytes > maxSizeBytes!) {
-                        const error = new Error(`Downloaded data size (${receivedBytes} bytes) exceeds limit of ${maxSizeBytes} bytes`);
-                        (error as CustomError).code = 'ERR_FILE_TOO_LARGE_STREAM';
-                        abortRequest(error);
-                    }
-                });
-
-                 stream.on('downloadProgress', progress => {
-                     if (requestAborted) return;
-                     // This is redundant if 'data' event is used correctly, but can be kept for logging
-                     // log.debug(`[Size Check] Progress for ${options.url}: ${progress.transferred} / ${progress.total || 'unknown'}`);
-                     // Abort check can also be placed here based on progress.transferred
-                     if (progress.transferred > maxSizeBytes!) {
-                          const error = new Error(`Download progress (${progress.transferred} bytes) exceeds limit of ${maxSizeBytes} bytes`);
-                          (error as CustomError).code = 'ERR_FILE_TOO_LARGE_STREAM';
-                          abortRequest(error);
-                     }
-                 });
-
-                stream.on('end', () => {
-                    if (requestAborted) return; // Don't proceed if aborted
-
-                    log.debug(`[Size Check] Stream finished for ${options.url}. Total size: ${receivedBytes} bytes.`);
-                    const body = Buffer.concat(dataChunks);
-                    const finalResponse = {
-                        body: body,
-                        headers: responseHeaders || {}, // Use captured headers
-                        statusCode: statusCode || 0, // Use captured status code
-                        // Other properties got.Response might have, might be faked or omitted
-                        requestUrl: options.url,
-                        redirectUrls: [], // Might need to capture redirects if important
-                        ip: undefined,
-                         timings: undefined, // Timings won't be fully accurate
-                        isFromCache: false
+                    const abortRequest = (error: Error) => {
+                        if (!requestAborted) {
+                            requestAborted = true;
+                            log.warn(`[Size Check] Aborting stream for ${options.url}: ${error.message}`);
+                            stream.destroy(error);
+                            resolve(this._handler(error, options));
+                        }
                     };
-                    // Call _handler with the assembled response
-                    resolve(this._handler(null, options, finalResponse as CrawlerResponse));
-                });
 
-                stream.on('error', (error: any) => {
-                    // Handle non-size related errors (network issues, etc.)
-                    if (!requestAborted) { // Avoid double handling if aborted due to size
-                         requestAborted = true; // Mark as aborted to prevent 'end' processing
-                         log.debug(`[Size Check] Stream error for ${options.url}: ${error.message}`);
-                         // Pass the error to _handler
-                         resolve(this._handler(error, options));
-                    }
+                    stream.on('response', (response: any) => {
+                        responseHeaders = response.headers;
+                        statusCode = response.statusCode;
+                        log.debug(`[Size Check] Stream response received for ${options.url} - Status: ${statusCode}`);
+
+                        const contentLength = responseHeaders?.['content-length'];
+                        if (contentLength) {
+                            const fileSize = parseInt(contentLength as string, 10);
+                            if (!isNaN(fileSize) && fileSize > maxSizeBytes!) {
+                                const error = new Error(`File size ${fileSize} (from GET Content-Length) exceeds limit of ${maxSizeBytes} bytes`);
+                                (error as CustomError).code = 'ERR_FILE_TOO_LARGE_RESPONSE_HEADER';
+                                abortRequest(error);
+                                return;
+                            }
+                        }
+                    });
+
+                    stream.on('data', (chunk: Buffer) => {
+                        if (requestAborted) return;
+
+                        receivedBytes += chunk.length;
+                        dataChunks.push(chunk);
+
+                        if (receivedBytes > maxSizeBytes!) {
+                            const error = new Error(`Downloaded data size (${receivedBytes} bytes) exceeds limit of ${maxSizeBytes} bytes`);
+                            (error as CustomError).code = 'ERR_FILE_TOO_LARGE_STREAM';
+                            abortRequest(error);
+                        }
+                    });
+
+                    stream.on('downloadProgress', progress => {
+                        if (requestAborted) return;
+                        if (progress.transferred > maxSizeBytes!) {
+                             const error = new Error(`Download progress (${progress.transferred} bytes) exceeds limit of ${maxSizeBytes} bytes`);
+                             (error as CustomError).code = 'ERR_FILE_TOO_LARGE_STREAM';
+                             abortRequest(error);
+                        }
+                    });
+
+                    stream.on('end', () => {
+                        if (requestAborted) return;
+
+                        log.debug(`[Size Check] Stream finished for ${options.url}. Total size: ${receivedBytes} bytes.`);
+                        const body = Buffer.concat(dataChunks);
+                        // Construct a response object similar to what got() would return
+                        const finalResponse: Partial<CrawlerResponse> = {
+                            body: body,
+                            headers: responseHeaders || {},
+                            statusCode: statusCode || 0,
+                            requestUrl: options.url,
+                        };
+                        resolve(this._handler(null, options, finalResponse as CrawlerResponse));
+                    });
+
+                    stream.on('error', (error: any) => {
+                        if (!requestAborted) {
+                            requestAborted = true;
+                            log.debug(`[Size Check] Stream error for ${options.url}: ${error.message}`);
+                            resolve(this._handler(error, options));
+                        }
+                    });
                 });
-            });
+            } else {
+                // Original behavior: full download via got()
+                try {
+                    const response = await got(gotOptions);
+                    return this._handler(null, options, response);
+                } catch (error) {
+                    log.debug(error);
+                    return this._handler(error, options);
+                }
+            }
         };
-
-        // Choose request function based on whether maxSizeBytes is set
-        const requestFn = (typeof maxSizeBytes === 'number' && maxSizeBytes > 0) ? streamRequest : originalRequest;
 
         // Handle preRequest (if defined by user)
         if (isFunction(options.preRequest)) {
@@ -328,22 +301,18 @@ class Crawler extends EventEmitter {
                         log.debug(`User preRequest aborted: ${err.message}`);
                         return this._handler(err, options);
                     }
-                    // If user's preRequest is okay, execute the chosen request function
+                    // If user's preRequest is okay, execute the request function
                     return await requestFn();
                 });
-                 // Important: Since preRequest is async now in this structure,
-                 // we need to await its completion if it doesn't immediately call back.
-                 // However, the typical preRequest pattern uses a callback `done`.
-                 // The structure above assumes `preRequest` calls `done` which then allows `requestFn` to run.
-                 // If preRequest itself needs to be awaited, the structure needs adjustment.
-                 return undefined as any; // preRequest callback will trigger the actual request
+                // Return undefined because the actual execution is handled by the preRequest callback
+                return undefined as any;
 
             } catch (err) {
                 log.error(`Error in user preRequest execution: ${err}`);
                 return this._handler(err, options); // Handle error from preRequest itself
             }
         } else {
-            // No user preRequest, just execute the chosen request function
+            // No user preRequest, just execute the request function
             return await requestFn();
         }
     };
