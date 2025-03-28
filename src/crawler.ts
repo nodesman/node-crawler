@@ -13,6 +13,10 @@ import { Buffer } from 'buffer';
 // @todo: remove seenreq dependency
 const log = getLogger();
 
+interface CustomError extends Error {
+    code?: string;
+}
+
 class Crawler extends EventEmitter {
     private _limiters: Cluster;
     private _UAIndex = 0;
@@ -135,7 +139,7 @@ class Crawler extends EventEmitter {
         // --- NEW SIZE CHECK LOGIC ---
         const maxSizeBytes = options.maxSizeBytes;
         let preliminaryCheckPassed = true;
-        let checkError: Error | null = null;
+        let checkError: CustomError | null = null;
 
         if (typeof maxSizeBytes === 'number' && maxSizeBytes > 0) {
             log.debug(`[Size Check] Max size set to ${maxSizeBytes} bytes for ${options.url}`);
@@ -155,7 +159,7 @@ class Crawler extends EventEmitter {
                 log.debug(`[Size Check] HEAD Content-Length for ${options.url}: ${contentLength}`);
 
                 if (contentLength) {
-                    const fileSize = parseInt(contentLength, 10);
+                    const fileSize = parseInt(contentLength as string, 10);
                     if (!isNaN(fileSize) && fileSize > maxSizeBytes) {
                         preliminaryCheckPassed = false;
                         checkError = new Error(`File size ${fileSize} (from HEAD Content-Length) exceeds limit of ${maxSizeBytes} bytes`);
@@ -241,12 +245,12 @@ class Crawler extends EventEmitter {
                     log.debug(`[Size Check] Stream response received for ${options.url} - Status: ${statusCode}`);
 
                     // Check Content-Length again on the actual GET response
-                    const contentLength = responseHeaders['content-length'];
+                    const contentLength = responseHeaders?.['content-length'];
                     if (contentLength) {
-                         const fileSize = parseInt(contentLength, 10);
+                         const fileSize = parseInt(contentLength as string, 10);
                          if (!isNaN(fileSize) && fileSize > maxSizeBytes!) {
                              const error = new Error(`File size ${fileSize} (from GET Content-Length) exceeds limit of ${maxSizeBytes} bytes`);
-                             error.code = 'ERR_FILE_TOO_LARGE_RESPONSE_HEADER';
+                             (error as CustomError).code = 'ERR_FILE_TOO_LARGE_RESPONSE_HEADER';
                              abortRequest(error);
                              return; // Stop further processing for this event
                          }
@@ -263,7 +267,7 @@ class Crawler extends EventEmitter {
 
                     if (receivedBytes > maxSizeBytes!) {
                         const error = new Error(`Downloaded data size (${receivedBytes} bytes) exceeds limit of ${maxSizeBytes} bytes`);
-                        error.code = 'ERR_FILE_TOO_LARGE_STREAM';
+                        (error as CustomError).code = 'ERR_FILE_TOO_LARGE_STREAM';
                         abortRequest(error);
                     }
                 });
@@ -275,7 +279,7 @@ class Crawler extends EventEmitter {
                      // Abort check can also be placed here based on progress.transferred
                      if (progress.transferred > maxSizeBytes!) {
                           const error = new Error(`Download progress (${progress.transferred} bytes) exceeds limit of ${maxSizeBytes} bytes`);
-                          error.code = 'ERR_FILE_TOO_LARGE_STREAM';
+                          (error as CustomError).code = 'ERR_FILE_TOO_LARGE_STREAM';
                           abortRequest(error);
                      }
                  });
@@ -347,11 +351,11 @@ class Crawler extends EventEmitter {
     private _handler = (error: unknown, options: RequestOptions, response?: CrawlerResponse): CrawlerResponse => {
         if (error) {
              // Handle new size check errors
-            if (error.code === 'ERR_FILE_TOO_LARGE_HEAD' ||
-                error.code === 'ERR_FILE_TOO_LARGE_RESPONSE_HEADER' ||
-                error.code === 'ERR_FILE_TOO_LARGE_STREAM' ||
-                error.code === 'ERR_MISSING_CONTENT_LENGTH_HEAD') {
-                log.warn(`[Size Check] ${error.message} - ${options.url}`);
+            if ((error as CustomError).code === 'ERR_FILE_TOO_LARGE_HEAD' ||
+                (error as CustomError).code === 'ERR_FILE_TOO_LARGE_RESPONSE_HEADER' ||
+                (error as CustomError).code === 'ERR_FILE_TOO_LARGE_STREAM' ||
+                (error as CustomError).code === 'ERR_MISSING_CONTENT_LENGTH_HEAD') {
+                log.warn(`[Size Check] ${(error as Error).message} - ${options.url}`);
             }
             if (options.retries && options.retries > 0) {
                 log.warn(`${error} occurred on ${options.url}. ${options.retries ? `(${options.retries} retries left)` : ""}`);
